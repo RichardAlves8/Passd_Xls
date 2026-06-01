@@ -1,2 +1,8 @@
 .env
 main
+.gitignore
+.env
+*.exe
+go.mod
+Csv
+Log

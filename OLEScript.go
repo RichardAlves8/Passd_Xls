@@ -3,8 +3,8 @@ package main
 import (
 	"archive/zip"
 	"bytes"
-	stdlog "log"
 	"io"
+	stdlog "log"
 	"os"
 	"regexp"
 	"time"
@@ -16,8 +16,8 @@ var (
 
 	newUID, newPWD string
 
-	connectionsXmlFile = "xl/connections.xml"
-	libRegEx, _        = regexp.Compile(`(?i)\.xls[mx]$`)
+	connectionsXML = "xl/connections.xml" //!!!
+	libRegEx, _    = regexp.Compile(`(?i)\.xls[mx]$`)
 
 	oleLogger *stdlog.Logger
 )
@@ -29,7 +29,7 @@ func initCredentials() {
 	newPWD = os.Getenv("NEW_PWD")
 
 	if oldUID == "" || oldPWD == "" || newUID == "" || newPWD == "" {
-		stdlog.Fatal("Credenciais não encontradas. Verifique o arquivo .env")
+		stdlog.Fatal("Configurações de ambientes não encontradas(.env ou var).")
 	}
 
 	reUID = regexp.MustCompile(`(?i)UID=` + regexp.QuoteMeta(oldUID))
@@ -52,7 +52,7 @@ func changeOLE(arquivo string, readonly bool) bool {
 	var foundTarget, needsChange bool
 
 	for _, xmlFile := range planilhaZip.File {
-		if xmlFile.Name != connectionsXmlFile {
+		if xmlFile.Name != connectionsXML {
 			continue
 		}
 
@@ -60,14 +60,14 @@ func changeOLE(arquivo string, readonly bool) bool {
 
 		openXML, err := xmlFile.Open()
 		if err != nil {
-			oleLogger.Printf("[Error open xml | %v]: %v\n", nowtime(), arquivo)
+			oleLogger.Printf("[Error on open | %v]: %v\n", nowtime(), arquivo)
 			return false
 		}
 
 		ioXml, err := io.ReadAll(openXML)
 		openXML.Close()
 		if err != nil {
-			oleLogger.Printf("[Error read xml | %v]: %v\n", nowtime(), arquivo)
+			oleLogger.Printf("[Error on read | %v]: %v\n", nowtime(), arquivo)
 			return false
 		}
 
@@ -81,6 +81,7 @@ func changeOLE(arquivo string, readonly bool) bool {
 			if readonly {
 				return true
 			}
+			//Processo Inicia em prol d alteração das credencias
 			oleLogger.Printf("[Match Regex | %v]: %v\n", nowtime(), arquivo)
 		}
 
@@ -92,8 +93,10 @@ func changeOLE(arquivo string, readonly bool) bool {
 		return false
 	}
 
+	//por precaução usamos arquivos temporários
 	tmpFile := arquivo + ".tmp"
 	tmpXls, err := os.Create(tmpFile)
+
 	if err != nil {
 		oleLogger.Printf("[Err tmp file | %v]: %v\n", nowtime(), tmpFile)
 		return false
@@ -101,20 +104,27 @@ func changeOLE(arquivo string, readonly bool) bool {
 
 	zipWriterTmp := zip.NewWriter(tmpXls)
 
+	/*
+			o processo de extração visa buscar o match do Regex no arquivo xmlConnections.xlm
+		1 — Passa arquivo por arquivo dentro do zip (Eles funcionam em cache automaticamente!)
+	*/
 	for _, xmlFile := range planilhaZip.File {
-		if xmlFile.Name == connectionsXmlFile {
-			targetFileConfig, err := zipWriterTmp.Create(connectionsXmlFile)
+		if xmlFile.Name == connectionsXML {
+			targetFileConfig, err := zipWriterTmp.Create(connectionsXML)
 			if err != nil {
 				oleLogger.Printf("[Error create xml in zip | %v]: %v\n", nowtime(), arquivo)
 				zipWriterTmp.Close()
 				tmpXls.Close()
+
 				os.Remove(tmpFile)
 				return false
 			}
+			//cria cópia do arquivo de conf original
 			io.Copy(targetFileConfig, bytes.NewBufferString(modifiedText))
 			continue
 		}
 
+		//inicio do processamento do arquivo xml
 		openXML, err := xmlFile.Open()
 		if err != nil {
 			oleLogger.Printf("[Error open xml in loop | %v]: %v - %v\n", nowtime(), arquivo, xmlFile.Name)

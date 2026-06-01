@@ -1,5 +1,10 @@
 package main
 
+/*
+Script procedural, acredito que não haja motivos para faze-lo de forma 
+"Estruturada" acredito que nesse contexto seria inconviniente 
+
+*/
 import (
 	"bufio"
 	"encoding/csv"
@@ -24,7 +29,7 @@ type Info struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		stdlog.Fatal("Uso: programa <path1> [path2] [path3] ...")
+		stdlog.Fatal("Uso: bin <path1> [path2] [path3] ...")
 	}
 
 	loadEnv(".env")
@@ -59,29 +64,36 @@ func main() {
 			}
 			if re.MatchString(info.Name()) {
 				nums++
-				fmt.Printf("\rTotal: %v", nums)
-				arquivos = append(arquivos, path)
+
+				//1 - Mapeamento
+				fmt.Printf("\rArquivos para processar: %v", nums)
+				arquivos = append(arquivos, path) //appenda
 			}
 			return nil
 		})
 	}
 
+	//meta dados
 	type resultado struct {
 		path    string
 		hasPass bool
 		modTime time.Time
 	}
 
+
 	results := make([]resultado, len(arquivos))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	sem := make(chan struct{}, 8) // @CHANGE WORKERS
+	sem := make(chan struct{}, 8) // @WORKERS
 	processed := 0
 	totalFiles := len(arquivos)
 
+	//2 - Analise de arquivos mapeados
 	for i, arquivo := range arquivos {
 		wg.Add(1)
 		go func(idx int, a string) {
+
+			//Operação de canais
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
@@ -91,10 +103,13 @@ func main() {
 			if err == nil {
 				modTime = info.ModTime()
 			}
-			hasPass := changeOLE(a, true)
+
+			
+			hasPass := changeOLE(a, true) // OLeScript.go
 			results[idx] = resultado{path: a, hasPass: hasPass, modTime: modTime}
 
-			mu.Lock()
+			//Operação em Lock (1p1) 
+			mu.Lock() 
 			processed++
 			fmt.Printf("\rProcessando: %d / %d", processed, totalFiles)
 			mu.Unlock()
@@ -104,7 +119,15 @@ func main() {
 	wg.Wait()
 	fmt.Println()
 
-	extMap := map[string]*Info{}
+	/*
+		3 - Processo de geração de relatório 
+			Mapeia pasta com extensões
+			ex:
+				C:\pasta1\xls
+				C:\pasta1\xlsm
+	*/
+
+	extMap := map[string]*Info{} 
 	total, totalpass := 0, 0
 
 	for _, r := range results {
@@ -139,32 +162,48 @@ func main() {
 		}
 	}
 
+
+	/*
+		Processo de montagem do CSV (ainda em relatório)
+	*/
 	outputFile, err := os.Create(filepath.Join("Csv", "relat.csv"))
 	if err != nil {
 		stdlog.Fatal("Erro ao criar relat.csv:", err)
 	}
 	defer outputFile.Close()
 
-	outputFile.WriteString("\xEF\xBB\xBF") // BOM UTF-8
+	outputFile.WriteString("\xEF\xBB\xBF") // BOM UTF-8 (para acentos e caracteres especiais)
 	writer := csv.NewWriter(outputFile)
 	defer writer.Flush()
 
+
 	writer.Write([]string{"Montagem", "Raiz", "Diretorio", "Extensao", "Arquivos", "Data_Alteracao", "Com_senha"})
 
-	for _, v := range extMap {
-		volumeName := filepath.VolumeName(v.Folder)
-		withoutVolume := strings.TrimPrefix(v.Folder, volumeName)
-		withoutVolume = strings.TrimPrefix(withoutVolume, string(filepath.Separator))
 
+	/*
+		Esta parte separa pastas raizes de subpastas 
+		Acredito que exista uma forma melhor de fazer isso, mas para manter 
+		a história do processo vou mante-la por enquanto
+	*/
+	for _, v := range extMap {
+
+		//Volume (C:\ ou Z:\ e etc, foi necessário para o caso do diretório estar mapeado de outra forma caso fosse reprocessado)
+		volumeName := filepath.VolumeName(v.Folder) //Captura
+		withoutVolume := strings.TrimPrefix(v.Folder, volumeName) //Separa por Prefix
+		withoutVolume = strings.TrimPrefix(withoutVolume, string(filepath.Separator))
+		
 		parts := strings.SplitN(withoutVolume, string(filepath.Separator), 2)
 		raiz, diretorioRestante := "", ""
+
 		if len(parts) > 0 {
 			raiz = parts[0]
 		}
+
 		if len(parts) > 1 {
 			diretorioRestante = parts[1]
 		}
 
+		
 		writer.Write([]string{
 			volumeName,
 			raiz,
@@ -177,6 +216,7 @@ func main() {
 	}
 
 	fmt.Println("\nSucess!")
+	//Prefiri separa apenas esse!
 	register(totalpass, total, extMap, filepath.Join("Csv", "register.csv"))
 }
 
@@ -192,7 +232,7 @@ func register(totalpass, total int, extMap map[string]*Info, reg string) {
 
 	now := time.Now().Format("02/01/2006")
 
-	// linha de totais globais
+	// linha de totais globais!
 	writer.Write([]string{
 		now,
 		strconv.Itoa(totalpass),
@@ -206,6 +246,7 @@ func register(totalpass, total int, extMap map[string]*Info, reg string) {
 	type acum struct{ files, hasPass int }
 
 	acumMap := map[chave]*acum{}
+
 
 	for _, v := range extMap {
 		volumeName := filepath.VolumeName(v.Folder)
@@ -239,9 +280,10 @@ func register(totalpass, total int, extMap map[string]*Info, reg string) {
 }
 
 func loadEnv(filename string) {
+	// .env é opcional
 	f, err := os.Open(filename)
 	if err != nil {
-		return // .env é opcional
+		return 
 	}
 	defer f.Close()
 
